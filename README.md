@@ -125,11 +125,29 @@ src/
   worker/         # ingest, matching, scoring (writes SQLite)
   shared/         # db access, config, logger — used by both processes
 web/              # Vite-built static configure/admin site
-config/           # categories.yaml, scoring.yaml, aliases.yaml (Phase 2+)
-data/             # local dev SQLite + backups (gitignored, except .gitkeep)
+config/           # categories.yaml, scoring.yaml (Phase 5+)
+data/             # aliases.yaml, stations.yaml (versioned seed config,
+                  # copied into the image — see PROGRESS.md's Phase 3
+                  # section for why these live here rather than config/)
+                  # + local dev SQLite/backups/cache (gitignored)
 ```
 
 ## Contributing / adding aliases and categories
 
-Documented once Phase 2 (`config/categories.yaml`) and Phase 3
-(`data/aliases.yaml`) land.
+- **`config/categories.yaml`** — sport category → ESPN league path
+  mapping (§3). Run `npm run verify:espn-paths` after editing to
+  re-verify every path against a live request.
+- **`data/aliases.yaml`** — channel name → canonical label. Add an entry
+  whenever Stage A's cascade fails to resolve a channel it should (a new
+  RSN rebrand, a shorthand name iptv-org doesn't list as an alt_name).
+  Names are matched via the same normalizer Stage A uses
+  (`src/shared/resolve/normalize.ts`), so don't worry about quality tags
+  or casing in the entries.
+- **`data/stations.yaml`** — call sign → network + city, for Stage A's
+  call-sign cascade step. Currently a tiny illustrative set (New York/LA/
+  Chicago big-4 affiliates); extend it as real playlists surface
+  call signs it doesn't recognize.
+- Run `npm run measure:stage-a-accuracy` after touching normalization,
+  aliases, stations, or the cascade — it's the regression check for
+  Stage A's resolution accuracy (baseline: 100% on the current fixture,
+  recorded in `PROGRESS.md`).

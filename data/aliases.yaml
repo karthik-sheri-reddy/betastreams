@@ -1,0 +1,126 @@
+# Channel alias file (§4, cascade step 2). Maps every known display name
+# a channel has ever gone by to one canonical label. Consulted after the
+# exact tvg-id/epg_channel_id lookup and before call-sign extraction —
+# it's for names iptv-org's alt_names doesn't (yet) cover, most notably
+# recent RSN rebrands.
+#
+# This is a small, hand-authored starting set (§0: "write down trade-offs
+# ... start it small and expect to grow it from real Stage A test
+# failures"), not a claim of completeness. Add entries as real playlists
+# surface names this file doesn't catch.
+version: 1
+aliases:
+  # RSN rebrand chain: Fox Sports X -> Bally Sports X -> FanDuel Sports
+  # Network X (2024). Every regional network Diamond Sports Group owned
+  # went through this same chain, so this pattern repeats per market.
+  - canonical: FanDuel Sports Network Detroit
+    names:
+      - Fox Sports Detroit
+      - FSN Detroit
+      - Bally Sports Detroit
+      - FanDuel Sports Network Detroit
+      - FanDuel SN Detroit
+
+  - canonical: FanDuel Sports Network Ohio
+    names:
+      - Fox Sports Ohio
+      - FSN Ohio
+      - Bally Sports Ohio
+      - FanDuel Sports Network Ohio
+      - FanDuel SN Ohio
+
+  - canonical: FanDuel Sports Network Southeast
+    names:
+      - Fox Sports Southeast
+      - FSN Southeast
+      - Bally Sports Southeast
+      - FanDuel Sports Network Southeast
+      - FanDuel SN Southeast
+
+  - canonical: FanDuel Sports Network West
+    names:
+      - Fox Sports West
+      - FSN West
+      - Bally Sports West
+      - FanDuel Sports Network West
+      - FanDuel SN West
+
+  - canonical: FanDuel Sports Network Sun
+    names:
+      - Fox Sports Sun
+      - FSN Sun
+      - Bally Sports Sun
+      - FanDuel Sports Network Sun
+
+  - canonical: FanDuel Sports Network Arizona
+    names:
+      - Fox Sports Arizona
+      - Bally Sports Arizona
+      - FanDuel Sports Network Arizona
+
+  # ESPN family: common shorthand/variant names seen in the wild that
+  # don't always carry a matching tvg-id.
+  - canonical: ESPN
+    names:
+      - ESPN
+      - ESPN USA
+      - ESPN 1
+      - ESPN HD
+
+  - canonical: ESPN2
+    names:
+      - ESPN2
+      - ESPN 2
+      - ESPN2 HD
+
+  - canonical: ESPNU
+    names:
+      - ESPNU
+      - ESPN U
+
+  - canonical: ESPNews
+    names:
+      - ESPNews
+      - ESPN News
+
+  - canonical: ESPN Deportes
+    names:
+      - ESPN Deportes
+      - ESPN Deportes HD
+
+  # Common national-network shorthand.
+  - canonical: NFL Network
+    names:
+      - NFL Network
+      - NFLN
+
+  - canonical: NFL RedZone
+    names:
+      - NFL RedZone
+      - NFL Red Zone
+      - RedZone
+
+  - canonical: NBA TV
+    names:
+      - NBA TV
+      - NBATV
+
+  - canonical: MLB Network
+    names:
+      - MLB Network
+      - MLBN
+
+  - canonical: NHL Network
+    names:
+      - NHL Network
+      - NHLN
+
+  - canonical: Golf Channel
+    names:
+      - Golf Channel
+      - The Golf Channel
+
+  - canonical: CBS Sports Network
+    names:
+      - CBS Sports Network
+      - CBSSN

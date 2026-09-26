@@ -1,0 +1,49 @@
+# Station call-sign table (§4, cascade step 3). Maps a US broadcast
+# call sign to its network affiliation and city. This is a tiny starting
+# set — the big-4 affiliates in the three largest US TV markets — real
+# publicly-known call signs, not fabricated, but nowhere near a full FCC
+# database. §5 (Stage B) is where the full station -> DMA table and
+# 506sports integration land; this file only needs enough for Stage A's
+# cascade to have something real to test against.
+#
+# TODO(operator): replace/extend with a full station list, ideally
+# sourced from RabbitEars.info or FCC data per §5, before relying on this
+# for anything beyond the three markets below.
+version: 1
+stations:
+  - callsign: WABC
+    network: ABC
+    city: New York
+  - callsign: WCBS
+    network: CBS
+    city: New York
+  - callsign: WNBC
+    network: NBC
+    city: New York
+  - callsign: WNYW
+    network: FOX
+    city: New York
+  - callsign: KABC
+    network: ABC
+    city: Los Angeles
+  - callsign: KCBS
+    network: CBS
+    city: Los Angeles
+  - callsign: KNBC
+    network: NBC
+    city: Los Angeles
+  - callsign: KTTV
+    network: FOX
+    city: Los Angeles
+  - callsign: WLS
+    network: ABC
+    city: Chicago
+  - callsign: WBBM
+    network: CBS
+    city: Chicago
+  - callsign: WMAQ
+    network: NBC
+    city: Chicago
+  - callsign: WFLD
+    network: FOX
+    city: Chicago

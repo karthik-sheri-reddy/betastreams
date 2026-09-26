@@ -20,7 +20,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "build:web": "npm --prefix web run build",
-    "verify:espn-paths": "tsx scripts/verifyEspnPaths.ts"
+    "verify:espn-paths": "tsx scripts/verifyEspnPaths.ts",
+    "measure:stage-a-accuracy": "tsx scripts/measureStageAAccuracy.ts"
   },
   "dependencies": {
     "@fastify/rate-limit": "^10.2.2",
@@ -31,6 +32,7 @@
     "js-yaml": "^5.4.2",
     "pino": "^9.6.0",
     "saxes": "^6.0.0",
+    "unidecode": "^1.1.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

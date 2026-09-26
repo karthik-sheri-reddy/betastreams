@@ -439,66 +439,330 @@ Carried over from Phase 1, still unanswered, still not blocking:
    re-explained every phase — if a later phase hits a third blocked host,
    assume the same cause first.
 
-## Next: Phase 3 — Stage A (stream → canonical channel resolution)
+## Phase 3 — Stage A (stream → canonical channel resolution): DONE (locally verified)
 
-Per §15 #3 / §4: normalization (strip country/quality tags, unidecode,
-lowercase), event-channel detection (parse channel names/group titles that
-look like one-off events, e.g. "PPV 3 - UFC 320" — reusing Phase 5's title
-parser once it exists, or a minimal stand-in now), the cascade
-(`tvg-id`/`epg_channel_id` exact → alias hash → call-sign extraction →
-blocked fuzzy match → logo dHash), memoization by normalized key, and
-channel grouping so scoring in Phase 5 happens once per canonical channel
-rather than per stream.
+### What was built
 
-**First concrete steps when Phase 3 starts:**
+- **Name normalization** (`src/shared/resolve/normalize.ts` — moved to
+  `shared`, not `worker`, because `aliases.ts`'s loader needs it and
+  `shared` must never depend on `worker`): strips a leading country/region
+  prefix (`US:`, `USA |`, `[US]`), `backup` markers, and plain-ASCII
+  quality tags (`HD`/`FHD`/`UHD`/`4K`/...); pulls an `(East)`/`(West)`-
+  style feed hint off the end into a separate field; then unidecodes
+  (which also disposes of emoji and stylized Unicode quality markers like
+  small-caps "ᴿᴬᵂ" for free, since unidecode has no transliteration for
+  them and drops them to nothing); then strips remaining punctuation,
+  lowercases, and collapses whitespace. 66 tests against a 60-name messy
+  fixture (`__fixtures__/messyNames.json`, well over the §15 bar of 50).
+  **Found and fixed a real bug while building the fixture**: the
+  country-prefix regex originally had an optional separator, which
+  amputated "ES" off the front of "ESPN" and "CA" off "Canal+" (both are
+  real country codes — Spain, Canada). Fixed by making the delimiter
+  after the code mandatory; this also turned out to make JS regex
+  alternation backtrack correctly when a shorter code ("US") is tried
+  before a longer one that's actually present ("USA"), fixing a second,
+  related bug for free.
+- **Event-channel detection** (`src/worker/resolve/eventTitle.ts`):
+  `parseEventTitle`/`detectEventChannel` — a deliberately minimal parser
+  (leaguePrefix + channelNumber + basic "vs"/"@"/"at" matchup + an
+  embedded clock time with optional US timezone abbreviation), explicitly
+  designed as the seed Phase 5's full §6.3 title parser extends rather
+  than a second, separate parser (resolves the "worth deciding
+  explicitly" item from the Phase 2 handoff). 38 tests against 29
+  fixture names (20+ positives required by §15; the fixture also carries
+  9 negatives — "NFL RedZone", "NBA TV", etc. — so the detector is proven
+  to say no as well as yes). **Found and fixed two real gaps** while
+  building the fixture: a bare hour time like "8PM ET" (no `:MM`) wasn't
+  matched at all, so the matchup regex swallowed it into the team name
+  ("Celtics 8PM ET"); and "UFC 320 PPV" (PPV as a trailing word, not a
+  "PPV NN -" prefix) wasn't detected as an event. Both fixed and covered.
+- **`data/aliases.yaml`** (RSN rebrand chains — Fox Sports X → Bally
+  Sports X → FanDuel Sports Network X — plus common ESPN-family/national-
+  network shorthand) and **`data/stations.yaml`** (a real, small,
+  publicly-known starting call-sign table: the big-4 affiliates in
+  New York/LA/Chicago), both zod-validated
+  (`src/shared/config/{aliases,stations}.ts`). Small and hand-authored on
+  purpose, per the Phase 2 handoff's own note — not a claim of national
+  coverage.
+  **Where these files actually live, and why (a real design question,
+  not an oversight):** the spec places `data/aliases.yaml` literally
+  alongside `/data/overrides.yaml` (§12's admin-editable override file),
+  implying operator-editable runtime state on the persistent volume. But
+  this repo already uses `data/` (repo-relative) as the *local-dev*
+  runtime SQLite/cache location (Phase 1's `.gitignore`), while
+  `/data` (absolute) is the *production* volume mount — same name, two
+  different things. For now, with no admin UI yet to edit them (that's
+  Phase 12), I'm treating `aliases.yaml`/`stations.yaml` as **versioned
+  seed config**, same tier as `config/categories.yaml`: committed to
+  git, copied into the Docker image (`.dockerignore` now mirrors
+  `.gitignore`'s specific `data/*.db`/`backups/`/`logos/`/`posters/`
+  exclusions instead of blanket-excluding all of `data/`, so these two
+  files reach the build context). **Open item for Phase 12:** decide
+  whether the override editor writes directly to these files on the
+  runtime volume (in which case a fresh deploy needs to seed
+  `DATA_DIR/aliases.yaml` from the image copy only if absent, to avoid
+  clobbering operator edits on redeploy) or keeps operator overrides in a
+  separate layer on top of the versioned file. Flagging now so it isn't
+  rediscovered as a surprise later.
+- **Fuzzy matching** (`src/shared/resolve/fuzzy.ts`, self-implemented per
+  §1): `jaroSimilarity`/`jaroWinkler` verified against the textbook
+  reference values from Winkler's own papers (MARTHA/MARHTA,
+  DWAYNE/DUANE, DIXON/DICKSONX — exact matches to 3 decimal places);
+  `levenshteinDistance`/`editRatio`; `tokenSetRatio` (fuzzywuzzy-style:
+  sorted-intersection vs. each side's leftover tokens, taking the best
+  score); `networkFamilyOf` for cascade-step-4 blocking (ESPN/RSN/
+  FOX_SPORTS/NBC_SPORTS/CBS_SPORTS/FOX/CBS/NBC/ABC). **Found and fixed a
+  real ranking bug via the accuracy fixture** (see below): `tokenSetRatio`
+  scores a pure token subset as a perfect 1.0 by design (intentional for
+  partial-search use cases like "Yankees" matching "New York Yankees") —
+  but that's actively wrong for identity resolution, where it let "ESPN"
+  (score 1.0 via subset) outrank "ESPN Deportes" (score 0.85) against a
+  typo'd query "ESPN Deprotes", even though Jaro-Winkler alone correctly
+  ranked "ESPN Deportes" higher. Fixed with `combinedFuzzyScore`: only
+  trust `tokenSetRatio`'s boost when the two strings are within a 0.6
+  length ratio of each other; otherwise fall back to Jaro-Winkler alone,
+  which doesn't have this subset blind spot. 20 tests total, including
+  one that locks in this exact scenario.
+- **iptv-org index** (`src/worker/resolve/iptvOrgIndex.ts`): builds
+  `byId` and `byNormalizedName` (every channel's name + every alt_name,
+  normalized) from Phase 2's `IptvOrgData`; excludes `closed` channels.
+  4 tests.
+- **Call-sign extraction** (`src/worker/resolve/callsign.ts`):
+  `\b[KW][A-Z]{2,3}\b` (uppercase-only, so it can't fire on ordinary
+  mixed-case words) plus a "FOX 2 Detroit"/"NBC Los Angeles"-style
+  network+city fallback pattern; `resolveStation` only ever returns a
+  match that's actually in the station table — an extracted candidate
+  that doesn't match anything real (e.g. "WXYZ") is silently dropped, not
+  treated as a resolution. 14 tests against all twelve fixture stations.
+- **The cascade** (`src/worker/resolve/cascade.ts`, `ChannelResolver`
+  class): detects event channels first (they skip normal resolution
+  entirely, per §4.2) — then, for regular channels, tries tvg-id → alias
+  (iptv-org normalized name/alt_name, then `data/aliases.yaml`) →
+  call-sign (own callsign, then network+city) → blocked fuzzy match, in
+  that order, stopping at the first confident hit. Memoizes by normalized
+  key, both within one run and — via a constructor-injected initial memo
+  — across worker restarts (the class itself is DB-agnostic; the caller
+  loads/saves `resolved_names` around it, which is what keeps this
+  testable without a database). v1 confidence priors: tvg_id 0.99, alias
+  0.95, callsign 0.9, network_city 0.75, fuzzy = its own combined score,
+  unresolved 0. 13 tests, including one proving the fuzzy step never
+  matches across a `networkFamilyOf` blocking boundary no matter how
+  similar the raw strings look.
+- **DB migration** (`0003_stage_a.sql`): `channel_resolutions`
+  (source_id, stream_key → normalized_key, feed_hint, is_event_channel,
+  canonical_channel_id, resolution_method, resolution_confidence) and
+  `resolved_names` (the persisted memo cache, keyed by normalized_key
+  alone — this is what makes "a stable playlist re-ingest does almost no
+  fuzzy work" (§4) hold across worker restarts, not just within one
+  process's lifetime). `src/worker/resolve/store.ts` has the
+  load/save/upsert functions; 4 tests.
+- **Worker wiring** (`src/worker/resolve/runStageA.ts`,
+  `src/worker/index.ts`): after each channel-ingest cycle, the worker
+  loads iptv-org data (via Phase 2's cached loader), builds the cascade
+  context, runs `ChannelResolver` over every row in the `channels` table,
+  and persists both `channel_resolutions` and the updated
+  `resolved_names` memo. If iptv-org is unreachable and there's no cache
+  yet, Stage A still runs — just without the iptv-org half of the
+  cascade — rather than blocking channel resolution entirely (§2: every
+  source individually disable-able). 2 tests, including one proving a
+  second run resolves correctly from the persisted memo alone even when
+  fed an *empty* iptv-org dataset.
+- **Accuracy measurement** (`src/worker/resolve/accuracy.ts` +
+  `scripts/measureStageAAccuracy.ts`, mirroring Phase 2's ESPN-path-
+  verification pattern): `measureAccuracy` runs the cascade against a
+  fixture of names paired with **independently pre-determined ground
+  truth** (I wrote down what each messy name really refers to in the real
+  world *before* running the code, then measured how many the cascade
+  got right — not the other way around, which would make the number
+  meaningless). Fixture is 57 entries (§15 wants ≥50) against a small
+  controlled "world" (`__fixtures__/accuracyWorld.json`, 23 iptv-org-
+  shaped channels) plus the real `data/aliases.yaml`/`stations.yaml`.
+  **This is exactly what caught the `tokenSetRatio` subset bug above** —
+  the very first run scored 56/57 (98.2%), and investigating the one
+  miss ("ESPN Deprotes" → wrongly "ESPN.us" instead of "ESPNDeportes.us")
+  is what found it.
 
-1. Read `channels` rows written by Phase 2's ingest (`src/worker/ingest/store.ts`'s
-   tables) — Stage A is a read of that table, a read of the iptv-org
-   loader's cached data, and a write to new `canonical_channels`/
-   `channel_resolutions` tables. It should not need to know about M3U vs.
-   Xtream at all; that's the point of the `ChannelRecord` abstraction from
-   Phase 2.
-2. Build the name-normalization rule list first, as pure functions with
-   its own test file, before the cascade — §15 #3's acceptance check
-   ("50 messy real-world name variants") is much easier to hit with
-   normalization already solid.
-3. `data/aliases.yaml` (RSN rebrand chains: Fox Sports X → Bally Sports X
-   → FanDuel Sports Network X, etc.) is new, hand-authored config — start
-   it small and expect to grow it from real Stage A test failures rather
-   than trying to enumerate every alias up front.
-4. Call-sign extraction and fuzzy-match blocking need the iptv-org
-   `channels`/`feeds` data Phase 2's loader already fetches — wire that
-   loader's output into Stage A rather than re-fetching independently.
-5. New migrations for canonical channels + resolution results
-   (`0003_...sql`).
-6. Decide how event-channel detection (§4.2) relates to Phase 5's title
-   parser (§6.3) — the spec says they share a parser. Consider building a
-   minimal shared parser now if Phase 3 needs it before Phase 5 exists, or
-   defer full event-channel parsing to land alongside Phase 5's parser and
-   have Phase 3 only flag "looks event-like" heuristically in the
-   meantime. Worth deciding explicitly rather than accidentally building
-   two parsers.
+### Verification
+
+- `npm run typecheck` / `npm run lint` — clean.
+- `npm test` — **250/250 passing** across 24 files (up from 78/78 at the
+  end of Phase 2).
+- **Stage A accuracy baseline: 57/57 = 100.0%** on the fixture, recorded
+  here and reproducible via `npm run measure:stage-a-accuracy` (writes
+  `reports/stage-a-accuracy.json`, gitignored — same "regenerate on
+  demand" treatment as the ESPN path report). This is a floor to catch
+  regressions against, not a claim that a real IPTV provider's actual
+  channel list will also hit 100% — the fixture's "world" is a small,
+  hand-picked set I control precisely because that's what makes ground
+  truth meaningful to define; a real panel will have names and channels
+  this world doesn't cover, which is exactly what `data/aliases.yaml`
+  is for growing over time.
+- **Real end-to-end smoke test** (not just mocked-fetch unit tests):
+  built the project, served the Phase 2 M3U/XMLTV fixtures over a local
+  HTTP server, ran the actual compiled `dist/entrypoint.js`. Confirmed:
+  channel ingest (5 channels) → EPG ingest (4 programmes) → iptv-org
+  fetch attempted and failed with the expected sandbox 403 (see below) →
+  logged as a warning, not a crash → Stage A ran anyway on the empty
+  iptv-org dataset plus `data/aliases.yaml` alone, correctly resolving 3
+  of the 5 fixture channels via alias (ESPN, ESPN2, FOX Sports Detroit →
+  the RSN alias chain), 1 via event-channel detection ("PPV 3 - UFC
+  320"), and correctly leaving 1 unresolved ("Comedy Central HD", not in
+  any lookup — the honest correct answer). `dataVersion` and `/health`
+  both reflected the run.
+- **`iptv-org.github.io` is unreachable from this sandbox** — same class
+  of network-egress-policy block as `deb.debian.org` (Phase 1) and
+  `site.api.espn.com` (Phase 2): `403 Host not in allowlist`. This is why
+  the smoke test above exercises the graceful-degradation path rather
+  than a real iptv-org fetch. The degradation itself is real and tested
+  (`runStageA.test.ts`'s persisted-memo test, and the worker's try/catch
+  around `loadIptvOrgData`); what's unverified in this sandbox is a real
+  iptv-org fetch succeeding, which needs the same broadened network
+  access noted for ESPN in Phase 2's handoff.
+
+### Decisions and trade-offs
+
+- **`normalizeChannelName` lives in `src/shared/`, not `src/worker/`.**
+  It started in `worker/resolve/` (Stage A's home) but `aliases.ts`'s
+  loader (in `shared/config/`) needs to normalize alias names the same
+  way the resolver does, and `shared` must never depend on `worker` per
+  the architecture in §1. Moved it (and its test + fixture) before
+  anything else could grow a dependency on the wrong location.
+- **Accuracy is measured against ground truth I wrote down first, not
+  reverse-engineered from the code's output.** This is worth stating
+  explicitly because it's the only way the number means anything — and
+  it's exactly what surfaced the `tokenSetRatio` bug. A fixture built by
+  running the code and copying whatever it produced would have "passed"
+  with the bug still in it.
+- **`combinedFuzzyScore`'s 0.6 length-ratio cutoff is a judgment call**,
+  not a principled derivation. It fixes the concrete case found (a
+  4-length "espn" vs. a 13-length "espn deprotes") with room to spare,
+  but the exact cutoff hasn't been tuned against a larger corpus — worth
+  revisiting if Phase 5's labeling turns up more fuzzy-matching misses
+  once there's more real data flowing through Stage A.
+- **The station table (`data/stations.yaml`) is genuinely tiny** (3
+  markets, 12 stations) **on purpose.** §5 (Stage B, next) owns the real
+  station → DMA table and 506sports integration; Stage A only needed
+  something real to test the call-sign cascade step against, not
+  national coverage.
+- **Logo perceptual hash (dHash), cascade step 5, was not built.** §4
+  lists it as "only when the steps above are ambiguous" — a genuine last
+  resort — and it needs real logo images to test against, which don't
+  exist yet (the logo cache is Phase 6's job, for posters). The cascade
+  is structured so this can slot in as a fifth step later without
+  restructuring anything; documented as deferred, not forgotten.
+- **`fetchShortEpg` (Phase 2) and the ESPN adaptive poller (Phase 2)
+  remain unwired**, for the same "no consumer yet" reason noted in the
+  Phase 2 handoff — Stage A doesn't need either. Still true after this
+  phase; Stage C (Phase 5) is where both get consumers.
+- **Full replace on every Stage A run, not incremental re-resolution of
+  only changed channels.** `runStageA` re-resolves every row in
+  `channels` every time it runs, relying on the `resolved_names` memo
+  to make already-seen names cheap rather than skipping unchanged
+  channels at the row level. This is simpler and, given the memo, not
+  meaningfully slower — worth revisiting only if Phase 7's load testing
+  says otherwise.
+
+### Measured numbers
+
+- Full test suite (250 tests, 24 files): ~2.6-2.9s wall.
+- Stage A accuracy fixture (57 entries) end to end, including building
+  the cascade context from `data/aliases.yaml` + `data/stations.yaml` +
+  a 23-channel iptv-org fixture: well under 100ms.
+- Real end-to-end smoke test (ingest 5 channels + 4 programmes, attempt
+  iptv-org fetch, run Stage A, persist results): worker startup to
+  "Stage A run complete" logged, under 1s total.
+- Formal cold-run/warm-run timing budgets against realistic data volumes
+  are still Phase 7's job (§9); nothing measured here contradicts them.
+
+## Open questions (updated)
+
+Carried over, still unanswered, still not blocking. Consolidating the
+"sandbox network policy" item from Phase 2 since it now has three
+occurrences rather than repeating it a third time:
+
+1. **Dev IPTV sources** — still no real M3U/XMLTV/Xtream credentials.
+   Same status as Phase 2's note: adapters are correctness-tested against
+   synthetic fixtures, not yet proven against a real provider's actual
+   output.
+2. **DuckDNS subdomain / Coolify deploy** — still not done. You asked
+   this session to test deployment via the Coolify MCP connector against
+   `betastreams.duckdns.org`; the connector showed `needs_reconnect` and
+   wasn't enabled in this chat, so I could not. Reconnect at
+   [claude.ai/customize/connectors](https://claude.ai/customize/connectors)
+   for a future session to pick it up (connectors load at session start).
+3. **GitHub repo** — resolved since Phase 1. PR
+   [karthik-sheri-reddy/betastreams#1](https://github.com/karthik-sheri-reddy/betastreams/pull/1)
+   is open from `claude/gallant-hawking-ntxu5r` into `main` and has
+   picked up all three phases' commits.
+4. **Schedules Direct account** — still unknown/unused.
+5. **This sandbox's network egress is narrower than production —
+   now three confirmed occurrences: `deb.debian.org` (Phase 1),
+   `site.api.espn.com` (Phase 2), `iptv-org.github.io` (Phase 3).** All
+   three return the same `403 Host not in allowlist` shape. If a future
+   phase hits a fourth blocked host, assume the same cause immediately —
+   don't re-diagnose it as an app bug. Broadening this session's network
+   access (cloud environment menu → Edit → Network access) is the fix
+   when a session actually needs to exercise one of these live; every
+   piece of code that depends on them has been built to degrade
+   gracefully (cached/stale fallback, or an empty-but-non-fatal result)
+   specifically because this was already known not to be reliably
+   testable here.
+
+## Next: Phase 4 — Stage B (channel → market / regionality)
+
+Per §15 #4 / §5: extend the station table with DMA data (not just
+network+city), build the `coverage(event_id, network, dma) -> airs`
+model, and a 506sports text-listing adapter (weekly refresh, low
+frequency, respects robots.txt, off by default behind `ENABLE_506`).
+
+**First concrete steps when Phase 4 starts:**
+
+1. `data/stations.yaml` currently has `{callsign, network, city}` — no
+   DMA field. Decide the DMA data model (Nielsen DMA names/codes vs. a
+   simpler custom label) before extending the schema, since Stage A's
+   `station:{callsign}` canonical ids and this phase's coverage table
+   both need to agree on what a "market" actually is.
+2. `RegionalCoverageProvider` should be a pluggable interface per §5 —
+   the 506sports adapter is one implementation; "NFL team's home market
+   always airs" is presumably another, simpler one that doesn't need any
+   external fetch at all. Consider building the always-airs-at-home-
+   market case first since it needs no adapter and no fixture, then
+   layer 506sports on top.
+3. 506sports.com reachability from this sandbox is unknown — check it
+   the same way Phase 2/3 checked ESPN/iptv-org before assuming it'll
+   work, and build the same graceful-degradation shape (cached/stale
+   fallback) if it's also blocked.
+4. Map-image DMA-centroid color sampling (§5's explicit "last resort...
+   off by default") should probably just not be built yet unless Phase
+   4's fixture-based coverage tests specifically need it — text-listing
+   parsing is the primary path and is what §15's acceptance check
+   ("coverage tests pass for one fixture NFL week") is testing.
+5. New migration for the `coverage` table.
+6. Leave the `TODO(operator)` already in `data/stations.yaml` (asking for
+   a fuller station list, ideally from RabbitEars.info or FCC data) as
+   the anchor point for whoever extends that file in this phase.
 
 **How to run what exists today:**
 
 ```bash
 npm install && npm --prefix web install
 npm run build:web
-npm run dev:server   # http://localhost:7000/health
-npm test             # 78 tests
-npm run verify:espn-paths   # writes reports/espn-path-verification.json (needs real ESPN access)
+npm run dev:server                    # http://localhost:7000/health
+npm test                              # 250 tests
+npm run verify:espn-paths             # needs real ESPN access (sandbox-blocked here)
+npm run measure:stage-a-accuracy      # writes reports/stage-a-accuracy.json
 ```
 
-or, to see real ingest happen end-to-end without a real IPTV provider,
+To see Stage A run against real ingest without a real IPTV provider,
 point `M3U_URLS`/`EPG_URLS` at any small locally-served M3U/XMLTV files
-(see the fixtures under `src/worker/ingest/__fixtures__/`) and run
-`npm run dev:server`.
+(fixtures under `src/worker/ingest/__fixtures__/`) and run
+`npm run dev:server` — channel ingest, EPG ingest, and Stage A all run
+automatically on worker startup.
 
-**Open issues carried into Phase 3:** none blocking; see Open Questions
-above for the non-blocking ones — in particular, re-run
-`npm run verify:espn-paths` from a network-unrestricted environment before
-trusting `config/categories.yaml`'s ESPN paths as verified, and reconnect
-the Coolify connector if you want deployment testing done from a session.
+**Open issues carried into Phase 4:** none blocking; see Open Questions
+above — in particular, the Coolify connector reconnect if you still want
+deployment testing done, and the three sandbox-blocked hosts if a future
+session needs to exercise ESPN/iptv-org/Debian mirrors live.
 
 If context is getting long when you pick this back up, start a fresh
 session and point it at this file.

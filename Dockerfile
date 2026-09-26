@@ -40,6 +40,11 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/web/dist ./web/dist
 COPY package.json ./
 COPY config ./config
+# data/aliases.yaml and data/stations.yaml are versioned seed config
+# (RSN rebrand chains, a starting station table) read at startup — see
+# PROGRESS.md for why this differs from the runtime-only /data volume
+# despite the similar name.
+COPY data/aliases.yaml data/stations.yaml ./data/
 
 RUN mkdir -p /data /data/backups /data/logos /data/posters && chown -R betastreams:betastreams /data /app
 
