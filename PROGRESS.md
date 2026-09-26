@@ -185,33 +185,299 @@ blocker.
 - Container cold start to `/health` 200: ~2s (dominated by Fastify +
   worker fork, not measured precisely — real measurement is Phase 7).
 
-## Next: Phase 2 — Ingest
+## Phase 2 — Ingest: DONE (locally verified, including real network I/O)
 
-Per §15 #2: `ChannelSource`/`EpgSource` interfaces (§2.1), M3U + XMLTV
-adapter, Xtream Codes adapter (account check, category pre-filter, live
-streams, `xmltv.php` guide, short-EPG fallback), iptv-org loader, ESPN
-client with adaptive polling (§9), `categories.yaml` with every ESPN path
-verified live per §3.
+### What was built
 
-**First concrete steps when Phase 2 starts:**
+- **Shared types** (`src/shared/types/source.ts`): `ChannelRecord`,
+  `ProgrammeRecord`, `ChannelSource`, `EpgSource` — the normalized shapes
+  every adapter produces, source-agnostic per §2.1.
+- **Credential redaction** (`src/shared/redact.ts`): `redactCredentials`
+  strips both Xtream URL-path credentials (`/live/{user}/{pass}/...`) and
+  query-param credentials (`?username=...&password=...`) from any string;
+  `redactAccountForLogging` does the same for an account config object.
+  Built and tested *before* the Xtream adapter, per the Phase 1 handoff
+  plan, and threaded through every Xtream error path
+  (`checkXtreamAccount`, `runIngest.ts`) so a thrown error's message is
+  never logged or stored raw. 7 tests, including the §14-mandated "fails
+  if a credential string shows up in captured log output" test.
+- **M3U parser** (`src/worker/ingest/m3u.ts`): line-oriented `#EXTINF`
+  parser (not streaming — M3U playlists are small text, unlike XMLTV).
+  7 tests against a 5-channel fixture plus inline edge cases (fallback to
+  `tvg-name`, `#EXTVLCOPT`/`#EXTGRP` lines, container-extension detection).
+- **XMLTV streaming parser** (`src/worker/ingest/xmltv.ts`): `saxes`-based,
+  yields one `ProgrammeRecord` per `<programme>` as its closing tag is
+  seen — never buffers the whole document. Handles per-source date
+  parsing (`20260115173000 +0000` → ISO UTC), `<previously-shown/>` rerun
+  flag. 7 tests, including feeding the same fixture through in 7-byte
+  chunks vs. all at once and asserting identical output (streaming
+  correctness), and a UTF-8 multi-byte character deliberately split
+  across a chunk boundary (via a persistent `TextDecoder({stream:true})`,
+  not naive per-chunk `Buffer.toString()`).
+- **M3U + XMLTV adapter** (`src/worker/ingest/sources/m3uXmltvSource.ts`):
+  `M3uChannelSource`/`XmltvEpgSource` wrap the parsers behind
+  `ChannelSource`/`EpgSource`.
+- **Xtream Codes adapter** (`src/worker/ingest/sources/xtream*.ts`):
+  - `xtreamAccount.ts`: `checkXtreamAccount` (player_api.php, no
+    `action`) reads `user_info`/`server_info`, treats non-`Active` status
+    or a past `exp_date` as unhealthy, never throws (bad account → `{
+    healthy: false, reason }`, not an exception) — 9 tests including "a
+    network-error message never leaks the raw username/password".
+  - `xtreamCategories.ts`: keyword-based `sports`/`maybe-sports`/
+    `not-sports` classifier plus an admin-override hook (wired to
+    `data/overrides.yaml` once Phase 12's admin UI exists) — 5 tests.
+  - `xtreamSource.ts`: `XtreamChannelSource` does the account check →
+    `get_live_categories` → classify → filter → `get_live_streams` per
+    included category cascade, mapping `epg_channel_id` to `tvgId` and
+    category name to `group`; `XtreamEpgSource` reuses the XMLTV streaming
+    parser against `xmltv.php`; `fetchShortEpg` decodes the base64
+    title/description fields from `get_short_epg`. 7 integration tests
+    against a full mocked `player_api.php`/`xmltv.php` fixture set
+    (credential-scrubbed: fabricated `testuser_zz9`/`testpass_zz9`, never
+    real values), asserting among other things that `urlTemplate` never
+    contains the account's real username/password — only the literal
+    `{server}/{username}/{password}` placeholders §2.1 specifies,
+    resolved later in the `/play` route (Phase 6), never stored resolved.
+- **iptv-org loader** (`src/worker/ingest/iptvOrg.ts`): fetches
+  channels/feeds/logos/guides.json, file-backed daily cache, falls back to
+  a stale cached copy on a failed refresh rather than failing outright
+  (§2: "if any source is down, serve the last good data and mark it
+  stale"). 5 tests.
+- **ESPN client** (`src/worker/espn/client.ts`): `fetchEspnScoreboard`/
+  `fetchEspnTeams` with conditional-request support (`If-None-Match` →
+  304 handling) and `computeAdaptivePollIntervalMs` — the pure §9 rule
+  (60s live / 10min within 6h / 60min otherwise) as a standalone,
+  clock-injectable function. 10 tests. **Not yet wired into the worker's
+  scheduler** — there's no consumer for scoreboard data until Stage C
+  (Phase 5), so polling ESPN now would just fetch and discard; wiring it
+  is Phase 5's job, alongside the adaptive-interval scheduler itself
+  (this phase only proves the interval math and the client, not a live
+  poll loop).
+- **`config/categories.yaml`** + loader (`src/shared/config/categories.ts`,
+  zod-validated): all 17 categories from §3, in order, with ESPN paths for
+  every league that has one and `epgKeywords` for EPG-derived-only
+  categories (fight/boxing, rugby, cricket, darts, billiards). **Rugby's
+  ESPN numeric league IDs were not filled in** — §3 flags these as numeric
+  IDs rather than slugs, and guessing them would mean fabricating IDs, so
+  rugby currently has `leagues: []` and relies on `epgKeywords` only.
+  Whoever has real ESPN rugby league IDs (or can verify them against pseudo-r's
+  docs) should add them. 5 tests, including "no duplicate espnPath",
+  "every league has a positive priority", and the full real
+  `categories.yaml` round-tripping through the zod schema.
+- **ESPN path verification** (`src/worker/espn/pathVerification.ts` +
+  `scripts/verifyEspnPaths.ts`): `verifyEspnPaths` hits every configured
+  league's scoreboard endpoint and reports ok/failed per path;
+  `applyVerificationReport` disables only the failed ones in place. 3
+  tests against a mocked fetch. **Actually ran it against the real ESPN
+  API** (`npm run verify:espn-paths`) — see Verification below for why
+  that run's output was discarded rather than committed.
+- **DB migrations** (`0002_ingest.sql`): `sources` (health/label
+  bookkeeping), `source_hashes` (one content hash per `(source_id,
+  'channels'|'programmes')` — Xtream accounts share one source id across
+  both artifact types, M3U/XMLTV pairs don't, so this is keyed per
+  artifact rather than per source), `channels`, `programmes`.
+- **Incremental ingest** (`src/worker/ingest/{store,runIngest}.ts`):
+  `ingestChannelSource`/`ingestEpgSource` fetch, hash the record set
+  (order-independent — sorted by a stable key before hashing, so a
+  provider re-shuffling the same list doesn't look like a change), compare
+  against the stored hash, and skip the DB write entirely when unchanged
+  (`skipped: true`, no rows touched, `data_version` not bumped) — this is
+  what makes a warm re-ingest a no-op (§9). On a changed hash, does a
+  delete+reinsert-in-one-transaction replace per source (both adapters
+  return a full list each fetch; there's no incremental diff from the
+  provider side to exploit yet). A thrown fetch/parse error marks the
+  source unhealthy with a redacted error message rather than crashing the
+  worker or the other sources' ingest. 9 tests.
+- **Worker wiring** (`src/worker/ingest/{buildSources,ingestCycle}.ts`,
+  `src/worker/index.ts`): `buildSourcesFromEnv` turns `M3U_URLS`,
+  `EPG_URLS`, `XTREAM_ACCOUNTS` into the adapters above (empty env →
+  empty source list, not an error). The worker now runs one ingest pass
+  immediately on startup, then channel sources every 6h and EPG sources
+  every 3h (§2's cadence), bumping `data_version` only when something
+  actually changed.
 
-1. Decide on Phase 2's fixture strategy given the open question above: use
-   real operator sources if provided by then, otherwise build a small
-   synthetic M3U+XMLTV fixture and a credential-scrubbed fake Xtream
-   `player_api.php`/`get_live_streams`/`xmltv.php` response set under
-   `fixtures/` or `test/fixtures/`.
-2. Add the `ChannelSource`/`EpgSource` TypeScript interfaces to
-   `src/shared/` (they're consumed by both adapters and, later, Stage A —
-   keep them source-agnostic per §2.1).
-3. Build the credential-redaction helper and its test *first* (§14 — "add
-   a test that fails if a credential string shows up in captured log
-   output"), since the Xtream adapter must use it from the start rather
-   than have it bolted on after.
-4. Add `config/categories.yaml` and write the "verify every ESPN path
-   against a live request at build time" checker script early, since it
-   gates which league paths Phase 2's ESPN client is allowed to poll.
-5. New migrations for `sources`, `channels`/`streams`, `programmes` tables
-   (append-only numbered `.sql` files; don't touch `0001_init.sql`).
+### Verification
+
+- `npm run typecheck` (now also checks `scripts/` via a second
+  `tsconfig.scripts.json` pass) — clean.
+- `npm run lint` — clean.
+- `npm test` — **78/78 passing** across 13 files (up from 4/4 at the end
+  of Phase 1).
+- **Real end-to-end smoke test, not just mocked-fetch unit tests:**
+  started a tiny local HTTP server serving the M3U/XMLTV fixtures, ran the
+  actual compiled `dist/entrypoint.js` with `M3U_URLS`/`EPG_URLS` pointing
+  at it. Confirmed: worker forked, built 1 channel source + 1 EPG source
+  from env, ingested 5 channels + 4 programmes over real HTTP, bumped
+  `data_version` from 0→1→2, and `/health` reflected it. **Then re-ran
+  the same binary against the same DB and the same unchanged fixtures**:
+  both sources logged `skipped: true`, `data_version` stayed at 2 — the
+  no-op behavior holds through a real process restart against a real
+  SQLite file, not just within one Vitest run.
+- **ESPN API is unreachable from this sandbox.** `site.api.espn.com`
+  returned `403 Host not in allowlist` — a network-egress policy on this
+  specific environment (same class of restriction as the `deb.debian.org`
+  block noted in Phase 1's Docker verification, not an ESPN or app issue).
+  Ran `npm run verify:espn-paths` anyway to prove the script itself works:
+  it correctly wrote a report and disabled all 31 paths — but every
+  failure was `unexpected status 403` (the sandbox's proxy), not a real
+  ESPN 404. Since that "all disabled" result would be actively wrong for
+  the real deployment, **I reverted `config/categories.yaml` to its
+  pre-verification state** rather than commit a false-negative report, and
+  added `reports/` to `.gitignore` (it's a regeneratable artifact, not
+  something to track — same reasoning as `eval/history.csv`). **Action
+  needed:** re-run `npm run verify:espn-paths` from an environment with
+  real internet access (or broaden this environment's network policy —
+  see Open Questions below) before trusting any path as verified; right
+  now every league path in `categories.yaml` is unverified against a live
+  request, only checked against the pseudo-r docs by hand when the list
+  was written.
+- The Coolify MCP connector mentioned in the continue-Phase-2 request
+  shows `needs_reconnect` / not enabled in this chat session (checked via
+  `ListConnectors`), so I could not use it to test a deployment against
+  `betastreams.duckdns.org` as asked. See Open Questions below.
+
+### Decisions and trade-offs
+
+- **Hash the parsed record set, not the raw upstream bytes.** Computing
+  the "did anything change" hash from a canonical (sorted, JSON-stringified)
+  form of the adapter's *output* — rather than the raw M3U/XML text or
+  Xtream JSON — means the incremental-ingest logic in `runIngest.ts` works
+  identically for every adapter without each one needing its own raw-hash
+  plumbing. The cost: this doesn't save the network fetch itself on a warm
+  cycle (§9's "hash every source" is partly about that), only the
+  downstream parse-and-DB-write cost. True conditional HTTP requests
+  (ETag/If-Modified-Since) for M3U/XMLTV are a candidate follow-up;
+  Xtream's `xmltv.php` "conditional requests where the server supports
+  them" from §2.1 is likewise not yet implemented — noted for Phase 5 or
+  later when ingest volume actually makes it worth it.
+- **Full replace-per-source on any change**, not a fine-grained diff by
+  stream/programme key. Both adapters return a complete list on every
+  fetch, so delete+reinsert in one transaction is simplest-correct.
+  Fine-grained diffing to "rescore only affected channel-event pairs" is
+  explicitly a §9 goal, but there's no scoring yet (Phase 5) for it to
+  matter to — revisit when Stage C exists.
+- **ESPN client and adaptive-interval math are built and tested but not
+  wired into the worker's scheduler.** Nothing consumes scoreboard data
+  yet (Stage C/Phase 5), so a live poll loop now would fetch and discard.
+  Building the pure interval function (`computeAdaptivePollIntervalMs`)
+  now, decoupled from any scheduler, means Phase 5 wires scheduling
+  against an already-tested policy rather than inventing one under
+  pressure.
+- **iptv-org loader is built and tested but not called from the worker
+  loop either**, for the same reason — its only consumer (Stage A alias
+  resolution) is Phase 3.
+- **Rugby has no ESPN league paths.** §3 says these are "numeric IDs"
+  unlike every other sport's slug paths, and I don't have a verified
+  numeric ID to put there without fabricating one. `epgKeywords` covers
+  rugby for now; `leagues: []` is intentional, not an oversight.
+- **`fetchShortEpg` is implemented but unused by anything yet** — §2.1 is
+  explicit that it should only be called "for sports-category channels
+  with no programmes in the full guide, near a candidate event,
+  rate-limited... cached for 30 min," all of which requires the candidate
+  events Stage C produces. Building the fetch+base64-decode function now,
+  isolated and tested, means Phase 5's scheduling layer has less to get
+  right in one go.
+- **Sequential, not parallel, ingest within a cycle**
+  (`runChannelIngestCycle`/`runEpgIngestCycle` loop over sources one at a
+  time). Matches §2.1's politeness requirement more directly than
+  parallelizing for speed would, and Phase 2's source counts are small
+  enough that this isn't a bottleneck.
+- **Xtream default `output` fallback**: `resolveOutputExt` prefers the
+  account's configured `output`, then the account-check response's
+  `allowed_output_formats[0]`, then hardcodes `ts` — matches §2.1 exactly.
+
+### Measured numbers
+
+- Full test suite (78 tests, 13 files): ~1.6s wall.
+- Real end-to-end ingest smoke test (local HTTP fixture server, 5
+  channels + 4 programmes): worker startup to both sources ingested and
+  `data_version` bumped twice, well under 1s.
+- Warm re-ingest against the same fixtures: both sources report
+  `skipped: true`; no measurable DB write cost (the hash comparison is the
+  only work done). Formal cold-ingest/warm-reingest timing budgets against
+  realistic 20k-stream/100k-programme volumes are Phase 7's job (§9's
+  numeric budgets), not Phase 2's — nothing here contradicts them, but
+  nothing here has been load-tested at that scale either.
+
+## Open questions (updated)
+
+Carried over from Phase 1, still unanswered, still not blocking:
+
+1. **Dev IPTV sources** — still no real M3U/XMLTV/Xtream credentials.
+   Phase 2 built and tested every adapter against synthetic fixtures (a
+   hand-built M3U+XMLTV pair, a credential-scrubbed fake Xtream API
+   response set) as flagged as the fallback plan. This proves the parsing
+   and ingest logic is correct; it does **not** prove any real provider's
+   M3U/XMLTV/Xtream responses match these adapters' assumptions byte for
+   byte. Point real credentials at `.env`'s `M3U_URLS`/`EPG_URLS`/
+   `XTREAM_ACCOUNTS` and re-run ingest before trusting this against a real
+   panel.
+2. **DuckDNS subdomain** — you mentioned `betastreams.duckdns.org` when
+   asking me to test deployment via Coolify. I did not get to test
+   against it: the Coolify MCP connector is present in your org but
+   showed `needs_reconnect` and wasn't enabled in this chat session. To
+   fix: reconnect it at
+   [claude.ai/customize/connectors](https://claude.ai/customize/connectors),
+   then a **new session** picks it up (connectors load at session start).
+   I still don't know whether `betastreams.duckdns.org`'s DNS/IP and the
+   Coolify app/domain config from §13 have actually been set up yet —
+   that's independent of the connector issue.
+3. **GitHub repo** — resolved since Phase 1:
+   `karthik-sheri-reddy/betastreams`. A base `main` branch now exists
+   (was empty before) with PR
+   [karthik-sheri-reddy/betastreams#1](https://github.com/karthik-sheri-reddy/betastreams/pull/1)
+   open from `claude/gallant-hawking-ntxu5r`.
+4. **Schedules Direct account** — still unknown/unused; not relevant yet.
+5. **New this phase — sandbox network egress is narrower than
+   production.** Two hosts this repo needs were blocked in this specific
+   session's environment: `deb.debian.org` (Phase 1, Docker's `apt-get`)
+   and `site.api.espn.com` (Phase 2, the path-verification script). Both
+   are ordinary hosts any normal server reaches fine; the block is this
+   environment's network policy, changeable under the cloud environment's
+   settings (Edit → Network access) if a future session needs to actually
+   run either live. Flagging this once here so it isn't re-discovered and
+   re-explained every phase — if a later phase hits a third blocked host,
+   assume the same cause first.
+
+## Next: Phase 3 — Stage A (stream → canonical channel resolution)
+
+Per §15 #3 / §4: normalization (strip country/quality tags, unidecode,
+lowercase), event-channel detection (parse channel names/group titles that
+look like one-off events, e.g. "PPV 3 - UFC 320" — reusing Phase 5's title
+parser once it exists, or a minimal stand-in now), the cascade
+(`tvg-id`/`epg_channel_id` exact → alias hash → call-sign extraction →
+blocked fuzzy match → logo dHash), memoization by normalized key, and
+channel grouping so scoring in Phase 5 happens once per canonical channel
+rather than per stream.
+
+**First concrete steps when Phase 3 starts:**
+
+1. Read `channels` rows written by Phase 2's ingest (`src/worker/ingest/store.ts`'s
+   tables) — Stage A is a read of that table, a read of the iptv-org
+   loader's cached data, and a write to new `canonical_channels`/
+   `channel_resolutions` tables. It should not need to know about M3U vs.
+   Xtream at all; that's the point of the `ChannelRecord` abstraction from
+   Phase 2.
+2. Build the name-normalization rule list first, as pure functions with
+   its own test file, before the cascade — §15 #3's acceptance check
+   ("50 messy real-world name variants") is much easier to hit with
+   normalization already solid.
+3. `data/aliases.yaml` (RSN rebrand chains: Fox Sports X → Bally Sports X
+   → FanDuel Sports Network X, etc.) is new, hand-authored config — start
+   it small and expect to grow it from real Stage A test failures rather
+   than trying to enumerate every alias up front.
+4. Call-sign extraction and fuzzy-match blocking need the iptv-org
+   `channels`/`feeds` data Phase 2's loader already fetches — wire that
+   loader's output into Stage A rather than re-fetching independently.
+5. New migrations for canonical channels + resolution results
+   (`0003_...sql`).
+6. Decide how event-channel detection (§4.2) relates to Phase 5's title
+   parser (§6.3) — the spec says they share a parser. Consider building a
+   minimal shared parser now if Phase 3 needs it before Phase 5 exists, or
+   defer full event-channel parsing to land alongside Phase 5's parser and
+   have Phase 3 only flag "looks event-like" heuristically in the
+   meantime. Worth deciding explicitly rather than accidentally building
+   two parsers.
 
 **How to run what exists today:**
 
@@ -219,17 +485,20 @@ verified live per §3.
 npm install && npm --prefix web install
 npm run build:web
 npm run dev:server   # http://localhost:7000/health
+npm test             # 78 tests
+npm run verify:espn-paths   # writes reports/espn-path-verification.json (needs real ESPN access)
 ```
 
-or
+or, to see real ingest happen end-to-end without a real IPTV provider,
+point `M3U_URLS`/`EPG_URLS` at any small locally-served M3U/XMLTV files
+(see the fixtures under `src/worker/ingest/__fixtures__/`) and run
+`npm run dev:server`.
 
-```bash
-docker build -t betastreams .   # needs real internet access for apt-get ffmpeg
-docker run --rm -p 7000:7000 -v betastreams-data:/data betastreams
-```
-
-**Open issues carried into Phase 2:** none blocking; see Open Questions
-above for the non-blocking ones.
+**Open issues carried into Phase 3:** none blocking; see Open Questions
+above for the non-blocking ones — in particular, re-run
+`npm run verify:espn-paths` from a network-unrestricted environment before
+trusting `config/categories.yaml`'s ESPN paths as verified, and reconnect
+the Coolify connector if you want deployment testing done from a session.
 
 If context is getting long when you pick this back up, start a fresh
 session and point it at this file.

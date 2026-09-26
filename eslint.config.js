@@ -6,7 +6,7 @@ module.exports = [
     ignores: ['dist/**', 'node_modules/**', 'web/dist/**', 'web/node_modules/**', 'data/**'],
   },
   {
-    files: ['src/**/*.ts'],
+    files: ['src/**/*.ts', 'scripts/**/*.ts'],
     languageOptions: {
       parser: tsParser,
       parserOptions: {

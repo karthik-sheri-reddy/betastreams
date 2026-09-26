@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE tv SYSTEM "xmltv.dtd">
+<tv generator-info-name="betastreams-fixture">
+  <channel id="ESPN.us">
+    <display-name>ESPN</display-name>
+  </channel>
+  <channel id="ESPN2.us">
+    <display-name>ESPN2</display-name>
+  </channel>
+  <channel id="FOXSportsDetroit.us">
+    <display-name>FOX Sports Detroit</display-name>
+  </channel>
+  <programme start="20260115173000 +0000" stop="20260115200000 +0000" channel="ESPN.us">
+    <title>College Football</title>
+    <sub-title>No. 5 Alabama at No. 12 Georgia</sub-title>
+    <desc>Live college football coverage.</desc>
+    <category>Sports</category>
+  </programme>
+  <programme start="20260115200000 +0000" stop="20260115223000 +0000" channel="ESPN.us">
+    <title>SportsCenter</title>
+    <category>Sports talk</category>
+  </programme>
+  <programme start="20260115180000 +0000" stop="20260115210000 +0000" channel="ESPN2.us">
+    <title>NBA Basketball</title>
+    <sub-title>Lakers at Celtics</sub-title>
+    <category>Sports</category>
+    <previously-shown/>
+  </programme>
+  <programme start="20260115230000 -0500" stop="20260116020000 -0500" channel="FOXSportsDetroit.us">
+    <title>MLB Baseball</title>
+    <sub-title>Tigers at Guardians</sub-title>
+    <category>Sports</category>
+  </programme>
+</tv>

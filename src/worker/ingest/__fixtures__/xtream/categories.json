@@ -1,0 +1,6 @@
+[
+  { "category_id": "10", "category_name": "USA | SPORTS", "parent_id": 0 },
+  { "category_id": "11", "category_name": "PPV EVENTS", "parent_id": 0 },
+  { "category_id": "20", "category_name": "USA | ENTERTAINMENT", "parent_id": 0 },
+  { "category_id": "21", "category_name": "Kids", "parent_id": 0 }
+]
