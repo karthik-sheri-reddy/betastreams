@@ -1,0 +1,31 @@
+services:
+  app:
+    build:
+      context: .
+      args:
+        ENABLE_OCR: ${ENABLE_OCR:-false}
+    expose:
+      - "7000"
+    volumes:
+      - appdata:/data
+    environment:
+      NODE_ENV: production
+      PORT: 7000
+      DATA_DIR: /data
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TZ_DEFAULT: ${TZ_DEFAULT:-UTC}
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+      SIGNING_SECRET: ${SIGNING_SECRET}
+      PROXY_MODE: ${PROXY_MODE:-redirect}
+      ENABLE_OCR: ${ENABLE_OCR:-false}
+      ENABLE_506: ${ENABLE_506:-false}
+      M3U_URLS: ${M3U_URLS:-}
+      EPG_URLS: ${EPG_URLS:-}
+      XTREAM_ACCOUNTS: ${XTREAM_ACCOUNTS:-}
+      SCHEDULES_DIRECT_USERNAME: ${SCHEDULES_DIRECT_USERNAME:-}
+      SCHEDULES_DIRECT_PASSWORD: ${SCHEDULES_DIRECT_PASSWORD:-}
+    restart: unless-stopped
+
+volumes:
+  appdata:

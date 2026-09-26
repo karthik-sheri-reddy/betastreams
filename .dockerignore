@@ -1,0 +1,20 @@
+node_modules
+dist
+web/node_modules
+web/dist
+# data/aliases.yaml and data/stations.yaml are versioned seed config (like
+# config/categories.yaml) and must reach the image; only the runtime-
+# generated subpaths below are excluded, mirroring .gitignore.
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/backups/*
+data/logos/
+data/posters/
+.git
+.env
+.env.local
+*.log
+coverage
+eval/history.csv
+reports/

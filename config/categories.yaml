@@ -1,0 +1,194 @@
+# Sport category → catalog mapping (§3). `leagues[].espnPath` is
+# `{sport}/{league}` as ESPN's site API expects it:
+#   https://site.api.espn.com/apis/site/v2/sports/{espnPath}/scoreboard
+#
+# Every path here must be verified against a live request before it's
+# trusted (see `npm run verify:espn-paths`, which writes
+# reports/espn-path-verification.json). A path that 404s gets
+# `disabled: true` here automatically; the ESPN client skips disabled
+# leagues. This is a starting set per §3, not gospel — 506sports/EPG
+# keywords and league lists are expected to grow.
+version: 1
+categories:
+  - id: live
+    name: Live Now
+    order: 1
+    leagues: []
+
+  - id: today
+    name: Today
+    order: 2
+    leagues: []
+
+  - id: american_football
+    name: American Football
+    order: 3
+    leagues:
+      - espnPath: football/nfl
+        displayName: NFL
+        priority: 1
+      - espnPath: football/college-football
+        displayName: NCAA Football
+        priority: 2
+      - espnPath: football/ufl
+        displayName: UFL
+        priority: 3
+      - espnPath: football/cfl
+        displayName: CFL
+        priority: 4
+
+  - id: basketball
+    name: Basketball
+    order: 4
+    leagues:
+      - espnPath: basketball/nba
+        displayName: NBA
+        priority: 1
+      - espnPath: basketball/wnba
+        displayName: WNBA
+        priority: 2
+      - espnPath: basketball/mens-college-basketball
+        displayName: NCAA Men's Basketball
+        priority: 3
+      - espnPath: basketball/womens-college-basketball
+        displayName: NCAA Women's Basketball
+        priority: 4
+
+  - id: baseball
+    name: Baseball
+    order: 5
+    leagues:
+      - espnPath: baseball/mlb
+        displayName: MLB
+        priority: 1
+      - espnPath: baseball/college-baseball
+        displayName: NCAA Baseball
+        priority: 2
+
+  - id: hockey
+    name: Hockey
+    order: 6
+    leagues:
+      - espnPath: hockey/nhl
+        displayName: NHL
+        priority: 1
+      - espnPath: hockey/mens-college-hockey
+        displayName: NCAA Men's Hockey
+        priority: 2
+
+  - id: football
+    name: Football (Soccer)
+    order: 7
+    leagues:
+      - espnPath: soccer/usa.1
+        displayName: MLS
+        priority: 1
+      - espnPath: soccer/eng.1
+        displayName: Premier League
+        priority: 2
+      - espnPath: soccer/esp.1
+        displayName: La Liga
+        priority: 3
+      - espnPath: soccer/ger.1
+        displayName: Bundesliga
+        priority: 4
+      - espnPath: soccer/ita.1
+        displayName: Serie A
+        priority: 5
+      - espnPath: soccer/fra.1
+        displayName: Ligue 1
+        priority: 6
+      - espnPath: soccer/mex.1
+        displayName: Liga MX
+        priority: 7
+      - espnPath: soccer/uefa.champions
+        displayName: UEFA Champions League
+        priority: 8
+      - espnPath: soccer/uefa.europa
+        displayName: UEFA Europa League
+        priority: 9
+      - espnPath: soccer/fifa.world
+        displayName: FIFA World Cup
+        priority: 10
+
+  - id: fight
+    name: Fight (UFC, Boxing)
+    order: 8
+    leagues:
+      - espnPath: mma/ufc
+        displayName: UFC
+        priority: 1
+    epgKeywords: [boxing, 'top rank', 'premier boxing champions', PBC]
+
+  - id: motor_sports
+    name: Motor Sports
+    order: 9
+    leagues:
+      - espnPath: racing/f1
+        displayName: Formula 1
+        priority: 1
+      - espnPath: racing/nascar-premier
+        displayName: NASCAR Cup Series
+        priority: 2
+      - espnPath: racing/irl
+        displayName: IndyCar
+        priority: 3
+
+  - id: tennis
+    name: Tennis
+    order: 10
+    leagues:
+      - espnPath: tennis/atp
+        displayName: ATP
+        priority: 1
+      - espnPath: tennis/wta
+        displayName: WTA
+        priority: 2
+
+  - id: golf
+    name: Golf
+    order: 11
+    leagues:
+      - espnPath: golf/pga
+        displayName: PGA Tour
+        priority: 1
+      - espnPath: golf/lpga
+        displayName: LPGA
+        priority: 2
+
+  - id: rugby
+    name: Rugby
+    order: 12
+    leagues: []
+    epgKeywords: [rugby, 'six nations', 'super rugby', 'rugby world cup']
+
+  - id: afl
+    name: AFL
+    order: 13
+    leagues:
+      - espnPath: australian-football/afl
+        displayName: AFL
+        priority: 1
+
+  - id: cricket
+    name: Cricket
+    order: 14
+    leagues: []
+    epgKeywords: [cricket, ipl, 'test match', odi, t20]
+
+  - id: darts
+    name: Darts
+    order: 15
+    leagues: []
+    epgKeywords: [PDC, 'Premier League Darts', 'World Matchplay']
+
+  - id: billiards
+    name: Billiards
+    order: 16
+    leagues: []
+    epgKeywords: [Mosconi, snooker, '9-ball', WPA]
+
+  - id: other
+    name: Other
+    order: 17
+    leagues: []

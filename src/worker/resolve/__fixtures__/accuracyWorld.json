@@ -1,0 +1,30 @@
+{
+  "channels": [
+    { "id": "ESPN.us", "name": "ESPN", "alt_names": ["ESPN USA"] },
+    { "id": "ESPN2.us", "name": "ESPN2", "alt_names": ["ESPN 2"] },
+    { "id": "ESPNU.us", "name": "ESPNU" },
+    { "id": "ESPNews.us", "name": "ESPNews" },
+    { "id": "ESPNDeportes.us", "name": "ESPN Deportes" },
+    { "id": "FoxSports1.us", "name": "FOX Sports 1" },
+    { "id": "FoxSports2.us", "name": "FOX Sports 2" },
+    { "id": "NBATV.us", "name": "NBA TV" },
+    { "id": "NFLNetwork.us", "name": "NFL Network" },
+    { "id": "NFLRedZone.us", "name": "NFL RedZone" },
+    { "id": "GolfChannel.us", "name": "Golf Channel" },
+    { "id": "CBSSportsNetwork.us", "name": "CBS Sports Network" },
+    { "id": "SkySportsMainEvent.uk", "name": "Sky Sports Main Event" },
+    { "id": "TUDN.us", "name": "TUDN" },
+    { "id": "WillowCricket.us", "name": "Willow Cricket" },
+    { "id": "BigTenNetwork.us", "name": "Big Ten Network" },
+    { "id": "SECNetwork.us", "name": "SEC Network" },
+    { "id": "ACCNetwork.us", "name": "ACC Network" },
+    { "id": "Pac12Network.us", "name": "Pac-12 Network" },
+    { "id": "YESNetwork.us", "name": "YES Network" },
+    { "id": "MLBNetwork.us", "name": "MLB Network" },
+    { "id": "NHLNetwork.us", "name": "NHL Network" },
+    { "id": "UnivisionDeportesNetwork.us", "name": "Univision Deportes Network" }
+  ],
+  "feeds": [],
+  "logos": [],
+  "guides": []
+}

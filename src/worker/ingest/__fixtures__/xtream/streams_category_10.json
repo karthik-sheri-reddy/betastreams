@@ -1,0 +1,19 @@
+[
+  {
+    "stream_id": 5001,
+    "name": "ESPN HD",
+    "stream_icon": "http://logos.example/espn.png",
+    "epg_channel_id": "ESPN.us",
+    "category_id": "10",
+    "tv_archive": 1,
+    "tv_archive_duration": 24
+  },
+  {
+    "stream_id": 5002,
+    "name": "FOX Sports 1",
+    "stream_icon": "http://logos.example/fs1.png",
+    "epg_channel_id": "FS1.us",
+    "category_id": "10",
+    "tv_archive": 0
+  }
+]
