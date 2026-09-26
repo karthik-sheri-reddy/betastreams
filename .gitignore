@@ -1,0 +1,17 @@
+node_modules/
+dist/
+web/dist/
+web/node_modules/
+.env
+.env.local
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/backups/*
+!data/backups/.gitkeep
+data/logos/
+data/posters/
+*.log
+.DS_Store
+coverage/
+eval/history.csv
